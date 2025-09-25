@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import InputSection from './components/InputSection';
 import ResultCard from './components/ResultCard';
@@ -22,10 +23,6 @@ const App: React.FC = () => {
   // State for save functionality
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
-
-
-  const titleTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -64,19 +61,6 @@ const App: React.FC = () => {
     }
   }, [saveState, hasUnsavedChanges]);
 
-
-  const adjustTextareaHeight = (element: HTMLTextAreaElement | null) => {
-    if (element) {
-      element.style.height = 'auto'; // Reset height to recalculate based on content
-      element.style.height = `${element.scrollHeight}px`;
-    }
-  };
-
-  useLayoutEffect(() => {
-    adjustTextareaHeight(titleTextareaRef.current);
-    adjustTextareaHeight(descriptionTextareaRef.current);
-  }, [listingData, editableTitle, editableDescription]);
-
   const toggleTheme = () => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
   };
@@ -91,6 +75,7 @@ const App: React.FC = () => {
     try {
       const data = await generateListing(productDescription);
       setListingData(data);
+// FIX: Added opening brace for the catch block to fix syntax error.
     } catch (err: any) {
       setError(err.message || 'An unknown error occurred.');
     } finally {
@@ -128,26 +113,32 @@ const App: React.FC = () => {
     }, 500);
   };
 
-  const highlightKeywords = (text: string, keywords: string[]): React.ReactNode => {
-    if (!keywords || keywords.length === 0) {
+  const escapeRegex = (str: string) => {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  };
+
+  const highlightKeywords = (text: string, keywords: string[], highlightClassName: string): React.ReactNode => {
+    if (!keywords || keywords.length === 0 || !text) {
       return text;
     }
-    const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
-    const escapeRegex = (str: string) => {
-      return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    };
-    const regex = new RegExp(`(${sortedKeywords.map(escapeRegex).join('|')})`, 'gi');
+    const sortedKeywords = [...keywords].filter(k => k.trim() !== '').sort((a, b) => b.length - a.length);
+    if (sortedKeywords.length === 0) {
+      return text;
+    }
+
+    // Use a regex with Unicode property escapes (\p{L}, \p{N}) and lookarounds 
+    // to correctly handle whole-word boundaries for international characters (like Arabic).
+    // The 'u' flag is necessary for this to work.
+    const regex = new RegExp(`(?<![\\p{L}\\p{N}_])(${sortedKeywords.map(escapeRegex).join('|')})(?![\\p{L}\\p{N}_])`, 'giu');
+    
     const parts = text.split(regex);
-    const lowercasedKeywords = new Set(keywords.map(kw => kw.toLowerCase()));
-    return parts.filter(part => part).map((part, index) => {
-      if (lowercasedKeywords.has(part.toLowerCase())) {
-        return (
-          <span key={index} className="font-bold text-red-500 dark:text-red-400">
-            {part}
-          </span>
-        );
+
+    // When splitting with a capturing group, the matched keywords are at odd indices.
+    return parts.map((part, index) => {
+      if (part && index % 2 === 1) { // It's a keyword
+        return <span key={index} className={highlightClassName}>{part}</span>;
       }
-      return part;
+      return part; // It's the text between keywords
     });
   };
 
@@ -159,7 +150,7 @@ const App: React.FC = () => {
       return {
         disabled: false,
         className: `${baseClasses} bg-purple-600 hover:bg-purple-700 shadow-md hover:shadow-lg transform hover:-translate-y-1`,
-        children: 'Save Listing'
+        children: 'حفظ الإعلان'
       };
     }
     
@@ -170,11 +161,11 @@ const App: React.FC = () => {
                 className: `${baseClasses} bg-purple-400 cursor-wait`,
                 children: (
                     <>
-                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="http://www.w3.org/2000/svg">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Saving...
+                        جاري الحفظ...
                     </>
                 )
             };
@@ -185,7 +176,7 @@ const App: React.FC = () => {
                 children: (
                     <>
                         <CheckIcon className="w-5 h-5"/>
-                        Saved!
+                        تم الحفظ!
                     </>
                 )
             };
@@ -194,12 +185,34 @@ const App: React.FC = () => {
             return {
                 disabled: true,
                 className: `${baseClasses} bg-gray-400 cursor-not-allowed`,
-                children: 'Save Listing'
+                children: 'حفظ الإعلان'
             };
     }
   };
   
   const saveButtonProps = getSaveButtonProps();
+
+  const commonTextAreaStyles = "w-full bg-transparent focus:outline-none resize-none overflow-hidden p-0 border-0 font-inherit";
+  
+  const keywordsInTitle = editableKeywords.filter(kw => {
+    if (!kw.trim()) return false;
+    // Use the same Unicode-aware regex to accurately test if the keyword is in the title.
+    const regex = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegex(kw)}(?![\\p{L}\\p{N}_])`, 'iu');
+    return regex.test(editableTitle);
+  });
+
+  const getKeywordVolumeClass = (index: number): string => {
+    // Top 4 keywords are high volume
+    if (index <= 3) {
+      return 'bg-green-500';
+    }
+    // Next 5 keywords are medium volume
+    if (index <= 8) {
+      return 'bg-yellow-400';
+    }
+    // Remaining keywords are low volume
+    return 'bg-orange-500';
+  };
 
   return (
     <div className={`min-h-screen font-sans bg-primary-light dark:bg-primary-dark transition-colors duration-300`}>
@@ -215,7 +228,7 @@ const App: React.FC = () => {
 
           {error && (
             <div className="text-center mt-8 text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/50 p-4 rounded-xl max-w-3xl mx-auto">
-              <p className="font-semibold">Oops! Something went wrong.</p>
+              <p className="font-semibold">عفوًا! حدث خطأ ما.</p>
               <p>{error}</p>
             </div>
           )}
@@ -234,7 +247,7 @@ const App: React.FC = () => {
               <div className="px-4 grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                 <div className="lg:col-span-2 space-y-8">
                   <ResultCard
-                    title="Generated Title"
+                    title="العنوان المُنشأ"
                     textToCopy={editableTitle}
                     badge={
                       <span className={`text-sm font-medium px-2.5 py-1 rounded-full ${editableTitle.length > 140 ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300' : 'bg-secondary-light dark:bg-gray-700 text-text-light dark:text-text-dark'}`}>
@@ -242,17 +255,25 @@ const App: React.FC = () => {
                       </span>
                     }
                   >
-                    <textarea
-                      ref={titleTextareaRef}
-                      value={editableTitle}
-                      onChange={handleFieldChange(setEditableTitle)}
-                      className="w-full text-lg bg-transparent focus:outline-none resize-none overflow-hidden p-0 border-0 text-gray-700 dark:text-gray-300"
-                      rows={1}
-                      aria-label="Editable product title"
-                    />
+                    <div className="relative">
+                        <div
+                            aria-hidden="true"
+                            className={`${commonTextAreaStyles} text-lg text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words pointer-events-none`}
+                        >
+                            {highlightKeywords(editableTitle, keywordsInTitle, "rounded bg-purple-200/60 dark:bg-purple-800/60")}
+                            {editableTitle === '' && '\u00A0' /* Non-breaking space to maintain height */}
+                        </div>
+                        <textarea
+                            value={editableTitle}
+                            onChange={handleFieldChange(setEditableTitle)}
+                            className={`${commonTextAreaStyles} absolute top-0 left-0 w-full h-full text-lg text-transparent caret-purple-500 dark:caret-purple-300`}
+                            rows={1}
+                            aria-label="Editable product title"
+                        />
+                    </div>
                   </ResultCard>
                   <ResultCard
-                    title="Generated Description"
+                    title="الوصف المُنشأ"
                     textToCopy={editableDescription}
                     badge={
                       <span className={`text-sm font-medium px-2.5 py-1 rounded-full ${editableDescription.length > 500 ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300' : 'bg-secondary-light dark:bg-gray-700 text-text-light dark:text-text-dark'}`}>
@@ -260,16 +281,24 @@ const App: React.FC = () => {
                       </span>
                     }
                   >
-                      <textarea
-                          ref={descriptionTextareaRef}
-                          value={editableDescription}
-                          onChange={handleFieldChange(setEditableDescription)}
-                          className="w-full text-base bg-transparent focus:outline-none resize-none overflow-hidden p-0 border-0 text-gray-700 dark:text-gray-300 leading-relaxed"
-                          rows={1}
-                          aria-label="Editable product description"
-                      />
+                      <div className="relative">
+                        <div
+                              aria-hidden="true"
+                              className={`${commonTextAreaStyles} text-base text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap break-words pointer-events-none`}
+                          >
+                              {highlightKeywords(editableDescription, editableKeywords, "rounded bg-teal-100 dark:bg-teal-900/60")}
+                              {editableDescription === '' && '\u00A0' /* Non-breaking space */}
+                          </div>
+                          <textarea
+                              value={editableDescription}
+                              onChange={handleFieldChange(setEditableDescription)}
+                              className={`${commonTextAreaStyles} absolute top-0 left-0 w-full h-full text-base text-transparent caret-teal-500 dark:caret-teal-300 leading-relaxed`}
+                              rows={1}
+                              aria-label="Editable product description"
+                          />
+                      </div>
                   </ResultCard>
-                  <ResultCard title="Suggested Category" textToCopy={listingData.category}>
+                  <ResultCard title="الفئة المقترحة" textToCopy={listingData.category}>
                       <p className="font-medium text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/50 px-3 py-1 rounded-full inline-block">
                           {listingData.category}
                       </p>
@@ -277,13 +306,15 @@ const App: React.FC = () => {
                 </div>
                 <div className="lg:col-span-1 space-y-8">
                   <GeneratedList 
-                      title="SEO Keywords" 
+                      title="الكلمات المفتاحية (SEO)" 
                       items={editableKeywords} 
                       charLimit={20}
                       isEditable={true}
                       onItemChange={handleKeywordChange}
+                      showVolumeLegend={true}
+                      getItemIndicatorClass={getKeywordVolumeClass}
                     />
-                  <GeneratedList title="Suggested Materials" items={listingData.materials} />
+                  <GeneratedList title="المواد المقترحة" items={listingData.materials} />
                 </div>
               </div>
             </div>

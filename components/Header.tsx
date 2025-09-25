@@ -1,4 +1,3 @@
-
 import React from 'react';
 import SunIcon from './icons/SunIcon';
 import MoonIcon from './icons/MoonIcon';
@@ -12,7 +11,7 @@ const Header: React.FC<HeaderProps> = ({ theme, toggleTheme }) => {
   return (
     <header className="flex justify-between items-center p-4 md:p-6">
       <h1 className="text-2xl md:text-3xl font-bold text-text-light dark:text-text-dark">
-        Etsy Listing Optimizer ✨
+        محسِّن إعلانات Etsy ✨
       </h1>
       <button
         onClick={toggleTheme}
